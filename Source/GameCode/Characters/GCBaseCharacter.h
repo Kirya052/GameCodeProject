@@ -4,7 +4,18 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "GameCodeTypes.h"
+#include "GenericTeamAgentInterface.h"
+#include "UObject/ScriptInterface.h"
+#include "Subsystems/SaveSubsystem/SaveSubsystemInterface.h"
 #include "GCBaseCharacter.generated.h"
+
+DECLARE_DELEGATE_OneParam(FOnInteractableObjectFound, FName);
+
+class UCharacterInventoryComponent;
+class UInventoryItem;
+class IInteractable;
+class UWidgetComponent;
 
 USTRUCT(BlueprintType)
 struct FMantlingSettings
@@ -46,7 +57,7 @@ class UGCBaseCharacterMovementComponent;
 class UCharacterAttributesComponent;
 class UCharacterEquipmentComponent;
 UCLASS(Abstract, NotBlueprintable)
-class GAMECODE_API AGCBaseCharacter : public ACharacter
+class GAMECODE_API AGCBaseCharacter : public ACharacter, public IGenericTeamAgentInterface, public ISaveSubsystemInterface
 {
 	GENERATED_BODY()
 
@@ -54,6 +65,15 @@ public:
 	AGCBaseCharacter(const FObjectInitializer& ObjectInitializer);
 
 	virtual void BeginPlay() override;
+
+	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
+
+	//@ ISaveSubsystemInterface
+	virtual void OnLevelDeserialized_Implementation() override;
+	//~ISaveSubsystemInterface
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	virtual void PossessedBy(AController* NewController) override;
 
 	virtual void MoveForward(float Value) {};
 	virtual void MoveRight(float Value) {};
@@ -78,6 +98,8 @@ public:
 	void StartAiming();
 	void StopAiming();
 
+	FRotator GetAimOffset();
+
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Character")
 	void OnStartAiming();
 
@@ -98,7 +120,14 @@ public:
 
 	FOnAimingStateChanged OnAimingStateChanged;
 
+	UFUNCTION(BlueprintCallable)
 	void Mantle(bool bForce = false);
+
+	UPROPERTY(ReplicatedUsing=OnRep_IsMantling)
+	bool bIsMantling;
+
+	UFUNCTION()
+	void OnRep_IsMantling(bool bWasMantling);
 
 	virtual bool CanJumpInternal_Implementation() const override;
 
@@ -130,6 +159,26 @@ public:
 
 	void PrimaryMeleeAttack();
 	void SecondaryMeleeAttack();
+
+	void Interact();
+
+	bool PickupItem(TWeakObjectPtr<UInventoryItem> ItemToPickup);
+	void UseInventory(APlayerController* PlayerController);
+
+	void RestoreFullStamina();
+	void AddHealth(float Health);
+
+	UPROPERTY(VisibleDefaultsOnly, Category = "Character | Components")
+	UWidgetComponent* HealthBarProgressComponent; 
+
+	void InitializeHealthProgress();
+
+	FOnInteractableObjectFound OnInteractableObjectFound;
+
+/** IGenericTeamAgentInterface */
+	virtual FGenericTeamId GetGenericTeamId() const override;
+/** ~IGenericTeamAgentInterface */
+
 protected:
 	// ~ begin IK settings
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Config|IK Setting")
@@ -212,6 +261,20 @@ protected:
 	virtual void OnStartAimingInternal();
 
 	virtual void OnStopAimingInternal();
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character | Team ")
+	ETeams Team = ETeams::Enemy;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Character | Team")
+	float LineOfSightDistance = 500.0f;
+
+	void TraceLineOfSight();
+
+	UPROPERTY()
+	TScriptInterface<IInteractable> LineOfSightObject;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Character | Components")
+	UCharacterInventoryComponent* CharacterInventoryComponent;
 
 private:
 	void UpdateIKSettings(float DeltaSeconds);

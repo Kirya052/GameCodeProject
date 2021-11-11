@@ -14,6 +14,13 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "GameFramework/PlayerController.h"
 #include "Actors/Equipment/Weapons/MeleeWeaponItem.h"
+#include "AIController.h"
+#include "Net/UnrealNetwork.h"
+#include "Actors/Interactive/Interface/Interactive.h"
+#include "Components/CharacterComponents/CharacterInventoryComponent.h"
+#include "Components/WidgetComponent.h"
+#include "UI/Widget/World/GCAttributeProgressBar.h"
+
 
 AGCBaseCharacter::AGCBaseCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UGCBaseCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
@@ -28,6 +35,10 @@ AGCBaseCharacter::AGCBaseCharacter(const FObjectInitializer& ObjectInitializer)
 
 	CharacterAttributesComponent = CreateDefaultSubobject<UCharacterAttributesComponent>(TEXT("CharacterAttributes"));
 	CharacterEquipmentComponent = CreateDefaultSubobject<UCharacterEquipmentComponent>(TEXT("CharacterEquipment"));
+	CharacterInventoryComponent = CreateDefaultSubobject<UCharacterInventoryComponent>(TEXT("InventoryComponent"));
+
+	HealthBarProgressComponent = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthBarProgressComponent"));
+	HealthBarProgressComponent->SetupAttachment(GetCapsuleComponent());
 }
 
 void AGCBaseCharacter::BeginPlay()
@@ -35,6 +46,37 @@ void AGCBaseCharacter::BeginPlay()
 	Super::BeginPlay();
 
 	CharacterAttributesComponent->OnDeathEvent.AddUObject(this, &AGCBaseCharacter::OnDeath);
+	InitializeHealthProgress();
+}
+
+void AGCBaseCharacter::EndPlay(const EEndPlayReason::Type Reason)
+{
+	if (OnInteractableObjectFound.IsBound())
+	{
+		OnInteractableObjectFound.Unbind();
+	}
+	Super::EndPlay(Reason);
+}
+
+void AGCBaseCharacter::OnLevelDeserialized_Implementation()
+{
+}
+
+void AGCBaseCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AGCBaseCharacter, bIsMantling);
+}
+
+void AGCBaseCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+	AAIController* AIController = Cast<AAIController>(NewController);
+	if (IsValid(AIController))
+	{
+		FGenericTeamId TeamId((uint8)Team);
+		AIController->SetGenericTeamId(TeamId);
+	}
 }
 
 void AGCBaseCharacter::ChangeCrouchState()
@@ -72,6 +114,8 @@ void AGCBaseCharacter::Tick(float DeltaTime)
 	TryChangeSprintState(DeltaTime);
 
 	UpdateIKSettings(DeltaTime);
+
+	TraceLineOfSight();
 }
 
 void AGCBaseCharacter::StartFire()
@@ -128,6 +172,15 @@ void AGCBaseCharacter::StopAiming()
 	OnStopAiming();
 }
 
+FRotator AGCBaseCharacter::GetAimOffset()
+{
+	FVector AimDirectionWorld = GetBaseAimRotation().Vector();
+	FVector AimDirectionLocal = GetTransform().InverseTransformVectorNoScale(AimDirectionWorld);
+	FRotator Result = AimDirectionLocal.ToOrientationRotator();
+
+	return Result;
+}
+
 void AGCBaseCharacter::OnStartAiming_Implementation()
 {
 	OnStartAimingInternal();
@@ -181,6 +234,8 @@ void AGCBaseCharacter::Mantle(bool bForce /*= false*/)
 	FLedgeDescription LedgeDescription;
 	if (LedgeDetectorComponent->DetectLedge(LedgeDescription))
 	{
+		bIsMantling = true;
+
 		FMantlingMovementParameters MantlingParameters;
 		MantlingParameters.InitialLocation = GetActorLocation();
 		MantlingParameters.InitialRotation = GetActorRotation();
@@ -205,11 +260,22 @@ void AGCBaseCharacter::Mantle(bool bForce /*= false*/)
 
 		MantlingParameters.InitialAnimationLocation = MantlingParameters.TargetLocation - MantlingSettings.AnimationCorrectionZ * FVector::UpVector + MantlingSettings.AnimationCorrectionXY * LedgeDescription.LedgeNormal;
 
-		GetBaseCharacterMovementComponent()->StartMantle(MantlingParameters);
+		if (IsLocallyControlled() || GetLocalRole() == ROLE_Authority)
+		{
+			GetBaseCharacterMovementComponent()->StartMantle(MantlingParameters);
+		}
 
 		UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
 		AnimInstance->Montage_Play(MantlingSettings.MantlingMontage, 1.0f, EMontagePlayReturnType::Duration, MantlingParameters.StartTime);
 		OnMantle(MantlingSettings, MantlingParameters.StartTime);
+	}
+}
+
+void AGCBaseCharacter::OnRep_IsMantling(bool bWasMantling)
+{
+	if (GetLocalRole() == ROLE_SimulatedProxy && !bWasMantling && bIsMantling)
+	{
+		Mantle(true);
 	}
 }
 
@@ -322,6 +388,52 @@ void AGCBaseCharacter::SecondaryMeleeAttack()
 	}
 }
 
+void AGCBaseCharacter::Interact()
+{
+	if (LineOfSightObject.GetInterface())
+	{
+		LineOfSightObject->Interact(this);
+	}
+}
+
+bool AGCBaseCharacter::PickupItem(TWeakObjectPtr<UInventoryItem> ItemToPickup)
+{
+	bool Result = false;
+	if (CharacterInventoryComponent->HasFreeSlot())
+	{
+		CharacterInventoryComponent->AddItem(ItemToPickup, 1);
+		Result = true;
+	}
+	return Result;
+}
+
+void AGCBaseCharacter::UseInventory(APlayerController* PlayerController)
+{
+	if (!IsValid(PlayerController))
+	{
+		return;
+	}
+	if (!CharacterInventoryComponent->IsViewVisible())
+	{
+		CharacterInventoryComponent->OpenViewInventory(PlayerController);
+		CharacterEquipmentComponent->OpenViewEquipment(PlayerController);
+		PlayerController->SetInputMode(FInputModeGameAndUI{});
+		PlayerController->bShowMouseCursor = true;
+	}
+	else
+	{
+		CharacterInventoryComponent->CloseViewInventory();
+		CharacterEquipmentComponent->CloseViewEquipment();
+		PlayerController->SetInputMode(FInputModeGameOnly{});
+		PlayerController->bShowMouseCursor = false;
+	}
+}
+
+FGenericTeamId AGCBaseCharacter::GetGenericTeamId() const
+{
+	return FGenericTeamId((uint8)Team);
+}
+
 bool AGCBaseCharacter::CanJumpInternal_Implementation() const
 {
 	return Super::CanJumpInternal_Implementation() && !GetBaseCharacterMovementComponent()->IsMantling();
@@ -413,6 +525,35 @@ void AGCBaseCharacter::DebugDrawStamina()
 	}
 }
 
+void AGCBaseCharacter::RestoreFullStamina()
+{
+	CurrentStamina = MaxStamina;
+}
+
+void AGCBaseCharacter::AddHealth(float Health)
+{
+	CharacterAttributesComponent->AddHealth(Health);
+}
+
+void AGCBaseCharacter::InitializeHealthProgress()
+{
+	UGCAttributeProgressBar* Widget = Cast<UGCAttributeProgressBar>(HealthBarProgressComponent->GetUserWidgetObject());
+	if (!IsValid(Widget))
+	{
+		HealthBarProgressComponent->SetVisibility(false);
+		return;
+	}
+
+	if (IsPlayerControlled() && IsLocallyControlled())
+	{
+		HealthBarProgressComponent->SetVisibility(false);
+	}
+
+	CharacterAttributesComponent->OnHealthChangedEvent.AddUObject(Widget, &UGCAttributeProgressBar::SetProgressPercantage);
+	CharacterAttributesComponent->OnDeathEvent.AddLambda([=]() { HealthBarProgressComponent->SetVisibility(false); });
+	Widget->SetProgressPercantage(CharacterAttributesComponent->GetHealthPercent());
+}
+
 bool AGCBaseCharacter::CanMantle() const
 {
 	return !GetBaseCharacterMovementComponent()->IsOnLadder();
@@ -445,6 +586,41 @@ void AGCBaseCharacter::OnStopAimingInternal()
 	if (OnAimingStateChanged.IsBound())
 	{
 		OnAimingStateChanged.Broadcast(false);
+	}
+}
+
+void AGCBaseCharacter::TraceLineOfSight()
+{
+	if (!IsPlayerControlled())
+	{
+		return;
+	}
+
+	FVector ViewLocation;
+	FRotator ViewRotation;
+
+	APlayerController* PlayerController = GetController<APlayerController>();
+	PlayerController->GetPlayerViewPoint(ViewLocation, ViewRotation);
+	
+	FVector ViewDirection = ViewRotation.Vector();
+	FVector TraceEnd = ViewLocation + ViewDirection * LineOfSightDistance;
+
+	FHitResult HitResult;
+	GetWorld()->LineTraceSingleByChannel(HitResult, ViewLocation, TraceEnd, ECC_Visibility);
+	if (LineOfSightObject.GetObject() != HitResult.Actor)
+	{
+		LineOfSightObject = HitResult.Actor.Get();
+
+		FName ActionName;
+		if (LineOfSightObject.GetInterface())
+		{
+			ActionName = LineOfSightObject->GetActionEventName();
+		}
+		else
+		{
+			ActionName = NAME_None;
+		}
+		OnInteractableObjectFound.ExecuteIfBound(ActionName);
 	}
 }
 

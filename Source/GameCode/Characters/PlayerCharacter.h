@@ -34,6 +34,8 @@ public:
     virtual bool CanJumpInternal_Implementation() const override;
     virtual void OnJumped_Implementation() override;
 
+    virtual void OnLevelDeserialized_Implementation() override;
+
 protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Character | Camera")
     class UCameraComponent* CameraComponent;
@@ -44,6 +46,8 @@ protected:
     virtual void OnStartAimingInternal() override;
 
     virtual void OnStopAimingInternal() override;
+
+    virtual void BeginPlay() override;
 
 
 };

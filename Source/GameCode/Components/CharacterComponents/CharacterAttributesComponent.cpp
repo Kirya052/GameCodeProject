@@ -8,10 +8,18 @@
 #include "Components/CapsuleComponent.h"
 #include "DrawDebugHelpers.h"
 #include "../../GameCodeTypes.h"
+#include "Net/UnrealNetwork.h"
 
 UCharacterAttributesComponent::UCharacterAttributesComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
+	SetIsReplicatedByDefault(true);
+}
+
+void UCharacterAttributesComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(UCharacterAttributesComponent, Health);
 }
 
 void UCharacterAttributesComponent::BeginPlay()
@@ -24,7 +32,30 @@ void UCharacterAttributesComponent::BeginPlay()
 
 	Health = MaxHealth;
 
-	CachedBaseCharacterOwner->OnTakeAnyDamage.AddDynamic(this, &UCharacterAttributesComponent::OnTakeAnyDamage);
+	if (GetOwner()->HasAuthority())
+	{
+		CachedBaseCharacterOwner->OnTakeAnyDamage.AddDynamic(this, &UCharacterAttributesComponent::OnTakeAnyDamage);
+	}
+}
+
+void UCharacterAttributesComponent::OnRep_Health()
+{
+	OnHealthChanged();
+}
+
+void UCharacterAttributesComponent::OnHealthChanged()
+{
+	if (OnHealthChangedEvent.IsBound())
+	{
+		OnHealthChangedEvent.Broadcast(GetHealthPercent());
+	}
+	if (Health <= 0.0f)
+	{
+		if (OnDeathEvent.IsBound())
+		{
+			OnDeathEvent.Broadcast();
+		}
+	}
 }
 
 #if UE_BUILD_DEBUG || UE_BUILD_DEVELOPMENT
@@ -50,15 +81,7 @@ void UCharacterAttributesComponent::OnTakeAnyDamage(AActor* DamagedActor, float 
 
 	UE_LOG(LogDamage, Warning, TEXT("UCharacterAttributesComponent::OnTakeAnyDamage %s recevied %.2f amount of damage from %s"), *CachedBaseCharacterOwner->GetName(), Damage, *DamageCauser->GetName());
 	Health = FMath::Clamp(Health - Damage, 0.0f, MaxHealth);
-
-	if (Health <= 0.0f)
-	{
-		UE_LOG(LogDamage, Warning, TEXT("UCharacterAttributesComponent::OnTakeAnyDamage character %s is killed by an actor %s"), *CachedBaseCharacterOwner->GetName(), *DamageCauser->GetName());
-		if (OnDeathEvent.IsBound())
-		{
-			OnDeathEvent.Broadcast();
-		}
-	}
+	OnHealthChanged();
 }
 
 void UCharacterAttributesComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -72,5 +95,16 @@ void UCharacterAttributesComponent::TickComponent(float DeltaTime, ELevelTick Ti
 float UCharacterAttributesComponent::GetHealthPercent() const
 {
 	return Health / MaxHealth;
+}
+
+void UCharacterAttributesComponent::AddHealth(float HealthToAdd)
+{
+	Health = FMath::Clamp(Health + HealthToAdd, 0.0f, MaxHealth);
+	OnHealthChanged();
+}
+
+void UCharacterAttributesComponent::OnLevelDeserialized_Implementation()
+{
+	OnHealthChanged();
 }
 

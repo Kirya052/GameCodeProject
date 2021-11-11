@@ -1,6 +1,11 @@
 #include "EquipableItem.h"
 #include "Characters/GCBaseCharacter.h"
 
+AEquipableItem::AEquipableItem()
+{
+	SetReplicates(true);
+}
+
 void AEquipableItem::SetOwner(AActor* NewOwner)
 {
 	Super::SetOwner(NewOwner);
@@ -8,6 +13,10 @@ void AEquipableItem::SetOwner(AActor* NewOwner)
 	{
 		checkf(GetOwner()->IsA<AGCBaseCharacter>(), TEXT("AEquipableItem::SetOwner() only character can be an owner of an equipable item"));
 		CachedCharacterOwner = StaticCast<AGCBaseCharacter*>(GetOwner());
+		if (GetLocalRole() == ROLE_Authority)
+		{
+			SetAutonomousProxy(true);
+		}
 	}
 	else
 	{
@@ -54,6 +63,16 @@ void AEquipableItem::UnEquip()
 EReticleType AEquipableItem::GetReticleType() const
 {
 	return ReticleType;
+}
+
+FName AEquipableItem::GetDataTableID() const
+{
+	return DataTableID;
+}
+
+bool AEquipableItem::IsSlotCompatible(EEquipmentSlots Slot)
+{
+	return CompatableEquipmentSlots.Contains(Slot);
 }
 
 AGCBaseCharacter* AEquipableItem::GetCharacterOwner() const

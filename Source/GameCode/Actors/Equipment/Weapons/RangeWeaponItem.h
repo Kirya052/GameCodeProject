@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Actors/Equipment/EquipableItem.h"
+#include "Subsystems/SaveSubsystem/SaveSubsystemInterface.h"
 #include "RangeWeaponItem.generated.h"
 
 DECLARE_MULTICAST_DELEGATE(FOnReloadComplete);
@@ -25,7 +26,7 @@ enum class EReloadType : uint8
 
 class UAnimMontage;
 UCLASS(Blueprintable)
-class GAMECODE_API ARangeWeaponItem : public AEquipableItem
+class GAMECODE_API ARangeWeaponItem : public AEquipableItem, public ISaveSubsystemInterface
 {
 	GENERATED_BODY()
 
@@ -35,11 +36,15 @@ public:
 	void StartFire();
 	void StopFire();
 
+	bool IsFiring() const;
+
 	void StartAim();
 	void StopAim();
 
 	void StartReload();
 	void EndReload(bool bIsSuccess);
+
+	bool IsReloading() const;
 
 	int32 GetAmmo() const;
 	int32 GetMaxAmmo() const;
@@ -61,6 +66,8 @@ public:
 	FOnReloadComplete OnReloadComplete;
 
 	virtual EReticleType GetReticleType() const;
+
+	virtual void OnLevelDeserialized_Implementation();
 
 protected:
 	virtual void BeginPlay() override;
@@ -122,6 +129,7 @@ protected:
 	EReticleType AimReticleType = EReticleType::Default;
 
 private:
+	UPROPERTY(SaveGame)
 	int32 Ammo = 0;
 
 	bool bIsReloading = false;

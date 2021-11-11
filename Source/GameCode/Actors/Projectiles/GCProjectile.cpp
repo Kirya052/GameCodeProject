@@ -16,6 +16,10 @@ AGCProjectile::AGCProjectile()
 
 	ProjectileMovementComponent = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("MovmentComponent"));
 	ProjectileMovementComponent->InitialSpeed = 2000.0f;
+	ProjectileMovementComponent->bAutoActivate = false;
+
+	SetReplicates(true);
+	SetReplicateMovement(true);
 }
 
 void AGCProjectile::LaunchProjectile(FVector Direction)
@@ -23,6 +27,11 @@ void AGCProjectile::LaunchProjectile(FVector Direction)
 	ProjectileMovementComponent->Velocity = Direction * ProjectileMovementComponent->InitialSpeed;
 	CollisionComponent->IgnoreActorWhenMoving(GetOwner(), true);
 	OnProjectileLaunched();
+}
+
+void AGCProjectile::SetProjectileActive_Implementation(bool bIsProjectileActive)
+{
+	ProjectileMovementComponent->SetActive(bIsProjectileActive);
 }
 
 void AGCProjectile::BeginPlay()
@@ -39,6 +48,6 @@ void AGCProjectile::OnCollisionHit(UPrimitiveComponent* HitComponent, AActor* Ot
 {
 	if (OnProjectileHit.IsBound())
 	{
-		OnProjectileHit.Broadcast(Hit, ProjectileMovementComponent->Velocity.GetSafeNormal());
+		OnProjectileHit.Broadcast(this, Hit, ProjectileMovementComponent->Velocity.GetSafeNormal());
 	}
 }

@@ -17,6 +17,8 @@ class GAMECODE_API AEquipableItem : public AActor
 	GENERATED_BODY()
 
 public:
+	AEquipableItem();
+
 	virtual void SetOwner(AActor* NewOwner) override;
 
 	EEquipableItemType GetItemType() const;
@@ -30,6 +32,10 @@ public:
 	virtual void UnEquip();
 
 	virtual EReticleType GetReticleType() const;
+
+	FName GetDataTableID() const;
+
+	bool IsSlotCompatible(EEquipmentSlots Slot);
 
 protected:
 	UPROPERTY(BlueprintAssignable)
@@ -47,8 +53,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipable item")
 	FName EquippedSocketName = NAME_None;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Equipable item")
+	TArray<EEquipmentSlots> CompatableEquipmentSlots;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Reticle")
 	EReticleType ReticleType = EReticleType::None;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item")
+	FName DataTableID = NAME_None;
 
 	AGCBaseCharacter* GetCharacterOwner() const; 
 

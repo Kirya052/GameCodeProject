@@ -9,6 +9,7 @@
 /**
  * 
  */
+ class UHighlightInteractable;
 UCLASS()
 class GAMECODE_API UPlayerHUDWidget : public UUserWidget
 {
@@ -19,6 +20,9 @@ public:
 
 	class UAmmoWidget* GetAmmoWidget();
 
+	void SetHighlightInteractebleVisibility(bool bIsVisible);
+	void SetHightInteractableActionText(FName KeyName);
+
 protected:
 	UFUNCTION(BlueprintCallable)
 	float GetHealthPercent() const;
@@ -28,4 +32,7 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Widget names")
 	FName AmmoWidgetName;
+
+	UPROPERTY(meta = (BindWidget))
+	UHighlightInteractable* InteractableKey;
 };

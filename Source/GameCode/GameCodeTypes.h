@@ -26,6 +26,11 @@ const FName DebugCategoryCharacterAttributes = FName("CharacterAttributes");
 const FName DebugCategoryRangeWeapon = FName("RangeWeapon");
 const FName DebugCategoryMeleeWeapon = FName("MeleeWeapon");
 
+const FName BB_CurrentTarget = FName("CurrentTarget");
+const FName BB_NextLocation = FName("NextLocation");
+
+const FName ActionInteract = FName("Interact");
+
 UENUM(BlueprintType)
 enum class EEquipableItemType : uint8
 {
@@ -74,4 +79,11 @@ enum class EMeleeAttackTypes : uint8
 	PrimaryAttack,
 	SecondaryAttack,
 	MAX UMETA(Hidden)
+};
+
+UENUM(BlueprintType)
+enum class ETeams : uint8
+{
+	Player,
+	Enemy
 };

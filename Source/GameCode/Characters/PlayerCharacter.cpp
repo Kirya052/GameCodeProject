@@ -7,6 +7,7 @@
 #include "Camera/CameraComponent.h"
 #include "Actors/Equipment/Weapons/RangeWeaponItem.h"
 #include "Components/CharacterComponents/CharacterEquipmentComponent.h"
+#include "Subsystems/Streaming/StreamingSubsystemUtils.h"
 
 APlayerCharacter::APlayerCharacter(const FObjectInitializer& ObjectInitializer) :
 	Super(ObjectInitializer)
@@ -25,6 +26,8 @@ APlayerCharacter::APlayerCharacter(const FObjectInitializer& ObjectInitializer) 
 
 	GetCharacterMovement()->bOrientRotationToMovement = 1;
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 540.0f, 0.0f);
+
+	Team = ETeams::Player;
 }
 
 void APlayerCharacter::MoveForward(float Value)
@@ -109,6 +112,12 @@ void APlayerCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeigh
 	SpringArmComponent->TargetOffset -= FVector(0.0f, 0.0f, HalfHeightAdjust);
 }
 
+void APlayerCharacter::OnLevelDeserialized_Implementation()
+{
+	Super::OnLevelDeserialized_Implementation();
+	UStreamingSubsystemUtils::CheckCharacterOverlapStreamingSubsystemVolume(this);
+}
+
 void APlayerCharacter::OnStartAimingInternal()
 {
 	Super::OnStartAimingInternal();
@@ -142,6 +151,12 @@ void APlayerCharacter::OnStopAimingInternal()
 		CameraManager->UnlockFOV();
 	}
 
+}
+
+void APlayerCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+	UStreamingSubsystemUtils::CheckCharacterOverlapStreamingSubsystemVolume(this);
 }
 
 bool APlayerCharacter::CanJumpInternal_Implementation() const

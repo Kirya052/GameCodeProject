@@ -10,12 +10,19 @@
 #include "UI/Widget/PlayerHUDWidget.h"
 #include "UI/Widget/AmmoWidget.h"
 #include "Components/CharacterComponents/CharacterEquipmentComponent.h"
+#include "GameCodeTypes.h"
+#include "GameFramework/PlayerInput.h"
+#include "Subsystems/SaveSubsystem/SaveSubsystem.h"
 
 void AGCPlayerController::SetPawn(APawn* InPawn)
 {
 	Super::SetPawn(InPawn);
 	CachedBaseCharacter = Cast<AGCBaseCharacter>(InPawn);
-	CreateAndInitializeWidgets();
+	if (CachedBaseCharacter.IsValid() && IsLocalController())
+	{
+		CreateAndInitializeWidgets();
+		CachedBaseCharacter->OnInteractableObjectFound.BindUObject(this, &AGCPlayerController::OnInteractableObjectFound);
+	}
 }
 
 bool AGCPlayerController::GetIgnoreCameraPitch() const
@@ -56,6 +63,12 @@ void AGCPlayerController::SetupInputComponent()
 	InputComponent->BindAction("PreviousItem", EInputEvent::IE_Pressed, this, &AGCPlayerController::PreviousItem);
 	InputComponent->BindAction("PrimaryMeleeAttack", EInputEvent::IE_Pressed, this, &AGCPlayerController::PrimaryMeleeAttack);
 	InputComponent->BindAction("SecondaryMeleeAttack", EInputEvent::IE_Pressed, this, &AGCPlayerController::SecondaryMeleeAttack);
+	FInputActionBinding& ToggleMenuBinding = InputComponent->BindAction("ToggleMainMenu", EInputEvent::IE_Pressed, this, &AGCPlayerController::ToggleMainMenu);
+	ToggleMenuBinding.bExecuteWhenPaused = true;
+	InputComponent->BindAction(ActionInteract, EInputEvent::IE_Pressed, this, &AGCPlayerController::Interact);
+	InputComponent->BindAction("UseInventory", EInputEvent::IE_Pressed, this, &AGCPlayerController::UseInventory);
+	InputComponent->BindAction("QuickSaveGame", EInputEvent::IE_Pressed, this, &AGCPlayerController::QuickSaveGame);
+	InputComponent->BindAction("QuickLoadGame", EInputEvent::IE_Pressed, this, &AGCPlayerController::QuickLoadGame);
 #if UE_BUILD_DEBUG || UE_BUILD_DEVELOPMENT
 	InputComponent->BindAction("Debug_IncreaseGlobalDilation", EInputEvent::IE_Pressed, this, &AGCPlayerController::Debug_IncreaseGlobalDilation);
 	InputComponent->BindAction("Debug_DecreaseGlobalDilation", EInputEvent::IE_Pressed, this, &AGCPlayerController::Debug_DecreaseGlobalDilation);
@@ -270,6 +283,76 @@ void AGCPlayerController::SecondaryMeleeAttack()
 	}
 }
 
+void AGCPlayerController::ToggleMainMenu()
+{
+	if (!IsValid(MainMenuWidget) || !IsValid(PlayerHUDWidget))
+	{
+		return;
+	}
+
+	if (MainMenuWidget->IsVisible())
+	{
+		MainMenuWidget->RemoveFromParent();
+		PlayerHUDWidget->AddToViewport();
+		SetInputMode(FInputModeGameOnly{});
+		SetPause(false);
+		bShowMouseCursor = false;	
+	}
+	else
+	{
+		MainMenuWidget->AddToViewport();
+		PlayerHUDWidget->RemoveFromParent();
+		SetInputMode(FInputModeGameAndUI{});
+		SetPause(true);
+		bShowMouseCursor = true;
+	}
+}
+
+void AGCPlayerController::Interact()
+{
+	if (CachedBaseCharacter.IsValid())
+	{
+		CachedBaseCharacter->Interact();
+	}
+}
+
+void AGCPlayerController::UseInventory()
+{
+	if (CachedBaseCharacter.IsValid())
+	{
+		CachedBaseCharacter->UseInventory(this);
+	}
+}
+
+void AGCPlayerController::QuickSaveGame()
+{
+	USaveSubsystem* SaveSubsystem = UGameplayStatics::GetGameInstance(GetWorld())->GetSubsystem<USaveSubsystem>();
+	SaveSubsystem->SaveGame();
+}
+
+void AGCPlayerController::QuickLoadGame()
+{
+	USaveSubsystem* SaveSubsystem = UGameplayStatics::GetGameInstance(GetWorld())->GetSubsystem<USaveSubsystem>();
+	SaveSubsystem->LoadLastGame();
+}
+
+void AGCPlayerController::OnInteractableObjectFound(FName ActionName)
+{
+	if (!IsValid(PlayerHUDWidget)) 
+	{
+		return;
+	}
+
+	TArray<FInputActionKeyMapping> ActionKeys = PlayerInput->GetKeysForAction(ActionName);
+	const bool HasAnyKeys = ActionKeys.Num() != 0;
+	if (HasAnyKeys)
+	{
+		FName ActionKey = ActionKeys[0].Key.GetFName();
+		PlayerHUDWidget->SetHightInteractableActionText(ActionKey);
+	}
+	PlayerHUDWidget->SetHighlightInteractebleVisibility(HasAnyKeys);
+}
+
 void AGCPlayerController::CreateAndInitializeWidgets()
 {
 	if (!IsValid(PlayerHUDWidget))
@@ -279,6 +362,11 @@ void AGCPlayerController::CreateAndInitializeWidgets()
 		{
 			PlayerHUDWidget->AddToViewport();
 		}
+	}
+
+	if (!IsValid(MainMenuWidget))
+	{
+		MainMenuWidget = CreateWidget<UUserWidget>(GetWorld(), MainMenuWidgetClass);
 	}
 
 	if (CachedBaseCharacter.IsValid() && IsValid(PlayerHUDWidget))
@@ -298,6 +386,8 @@ void AGCPlayerController::CreateAndInitializeWidgets()
 			CharacterEquipment->OnCurrentWeaponAmmoChangedEvent.AddUFunction(AmmoWidget, FName("UpdateAmmoCount"));
 		}
 	}
+	SetInputMode(FInputModeGameOnly{});
+	bShowMouseCursor = false;
 }
 
 #if UE_BUILD_DEBUG || UE_BUILD_DEVELOPMENT
